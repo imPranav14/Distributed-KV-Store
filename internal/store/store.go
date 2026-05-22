@@ -25,3 +25,15 @@ func New() *Store {
 		kv: make(map[string]string),
 	}
 }
+
+// Get returns the value associated with key and a boolean indicating whether
+// the key is present. The two-value (comma-ok) form is required: a key whose
+// value is the empty string must be distinguishable from an absent key,
+// otherwise WAL replay (M4) and snapshot restore (M8) cannot be deterministic.
+//
+// Get is safe to call on a Store with a nil kv map (it will report ok=false
+// for every key), but callers should still construct via New.
+func (s *Store) Get(key string) (value string, ok bool) {
+	value, ok = s.kv[key]
+	return value, ok
+}
