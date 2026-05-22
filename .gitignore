@@ -1,0 +1,24 @@
+# Binaries and build artifacts
+bin/
+*.exe
+*.test
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Coverage
+coverage.txt
+*.coverprofile
+
+# Runtime persistence (WAL, snapshots, per-node data dirs)
+data/
+*.wal
+*.snap
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
