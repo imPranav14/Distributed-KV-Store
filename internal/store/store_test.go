@@ -38,33 +38,36 @@ func TestGet_AbsentKey_ReturnsNotOK(t *testing.T) {
 	}
 }
 
-// TestGet_PresentKey_ReturnsValueAndOK asserts the present-key half: a key
-// written into the map is returned with ok=true and the correct value.
-// The test bypasses the (not-yet-implemented) Put by writing directly to
-// the unexported kv field; M1.4 will re-express this test through Put.
-func TestGet_PresentKey_ReturnsValueAndOK(t *testing.T) {
+// TestPut_ThenGet_RoundTrip asserts the core safety invariant:
+// immediately after Put(k, v), Get(k) returns (v, true). This is the
+// template every later state-machine invariant builds on.
+//
+// Refactored from M1.3's TestGet_PresentKey_ReturnsValueAndOK, which
+// poked s.kv directly because Put did not yet exist.
+func TestPut_ThenGet_RoundTrip(t *testing.T) {
 	s := New()
-	s.kv["k"] = "v"
 
+	s.Put("k", "v")
 	v, ok := s.Get("k")
 
 	if !ok {
-		t.Errorf("expected ok=true for present key, got ok=false")
+		t.Errorf("expected ok=true after Put, got ok=false")
 	}
 	if v != "v" {
 		t.Errorf("expected value %q, got %q", "v", v)
 	}
 }
 
-// TestGet_PresentKey_EmptyString_DistinctFromAbsent is the pedagogical core
-// of M1.3: a key present with an empty-string value must be observably
-// distinct from an absent key. If this test ever fails, Put("k", "") has
-// become indistinguishable from "k was never written" and WAL replay /
-// snapshot restore will silently corrupt state.
-func TestGet_PresentKey_EmptyString_DistinctFromAbsent(t *testing.T) {
+// TestPut_EmptyString_IsObservable asserts that Put(k, "") is observably
+// distinct from never writing k: Get must report ok=true. If this test
+// ever fails, Put("k", "") has become indistinguishable from "k was never
+// written" and WAL replay / snapshot restore will silently corrupt state.
+//
+// Refactored from M1.3's TestGet_PresentKey_EmptyString_DistinctFromAbsent.
+func TestPut_EmptyString_IsObservable(t *testing.T) {
 	s := New()
-	s.kv["empty"] = ""
 
+	s.Put("empty", "")
 	v, ok := s.Get("empty")
 
 	if !ok {
@@ -72,5 +75,151 @@ func TestGet_PresentKey_EmptyString_DistinctFromAbsent(t *testing.T) {
 	}
 	if v != "" {
 		t.Errorf("expected empty-string value, got %q", v)
+	}
+}
+
+// TestPut_OverwritesExistingValue asserts that a second Put on the same
+// key replaces the value rather than appending or erroring.
+func TestPut_OverwritesExistingValue(t *testing.T) {
+	s := New()
+
+	s.Put("k", "first")
+	s.Put("k", "second")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after overwrite, got ok=false")
+	}
+	if v != "second" {
+		t.Errorf("expected overwritten value %q, got %q", "second", v)
+	}
+}
+
+// TestPut_MultipleKeys_AreIndependent asserts that writes to one key do
+// not affect any other key. Trivial for a map[string]string today; this
+// test exists as a regression guard for later layers (e.g., a buggy WAL
+// or snapshot encoder that conflates keys).
+func TestPut_MultipleKeys_AreIndependent(t *testing.T) {
+	s := New()
+
+	s.Put("a", "1")
+	s.Put("b", "2")
+
+	if v, ok := s.Get("a"); !ok || v != "1" {
+		t.Errorf("Get(a) = (%q, %v), want (%q, true)", v, ok, "1")
+	}
+	if v, ok := s.Get("b"); !ok || v != "2" {
+		t.Errorf("Get(b) = (%q, %v), want (%q, true)", v, ok, "2")
+	}
+}
+
+// TestPut_RepeatedSameValue_IsIdempotent names the property that makes Put
+// safe for client retry: applying the same Put twice yields the same
+// observable state as applying it once. Append (M1.5) deliberately does
+// not have this property; that contrast is the motivation for M2's
+// idempotency machinery.
+func TestPut_RepeatedSameValue_IsIdempotent(t *testing.T) {
+	s := New()
+
+	s.Put("k", "v")
+	s.Put("k", "v")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after repeated Put, got ok=false")
+	}
+	if v != "v" {
+		t.Errorf("expected value %q after repeated Put, got %q", "v", v)
+	}
+}
+
+// TestAppend_OnAbsentKey_CreatesIt asserts the create-if-missing half of
+// Append's semantics. Go's map zero value (empty string) makes this fall
+// out of the implementation without a branch.
+func TestAppend_OnAbsentKey_CreatesIt(t *testing.T) {
+	s := New()
+
+	s.Append("k", "v")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after Append on absent key, got ok=false")
+	}
+	if v != "v" {
+		t.Errorf("expected value %q after Append on absent key, got %q", "v", v)
+	}
+}
+
+// TestAppend_OnExistingKey_Concatenates asserts the concatenation half of
+// Append's semantics.
+func TestAppend_OnExistingKey_Concatenates(t *testing.T) {
+	s := New()
+
+	s.Put("k", "ab")
+	s.Append("k", "cd")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after Append, got ok=false")
+	}
+	if v != "abcd" {
+		t.Errorf("expected concatenated value %q, got %q", "abcd", v)
+	}
+}
+
+// TestAppend_EmptyValueOnExisting_IsNoOp asserts that Append(k, "") on an
+// existing key leaves the value unchanged but still observable as present.
+func TestAppend_EmptyValueOnExisting_IsNoOp(t *testing.T) {
+	s := New()
+
+	s.Put("k", "abc")
+	s.Append("k", "")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after Append(\"\"), got ok=false")
+	}
+	if v != "abc" {
+		t.Errorf("expected unchanged value %q after empty Append, got %q", "abc", v)
+	}
+}
+
+// TestAppend_Sequence_AccumulatesAllValues asserts that successive Appends
+// build up the expected concatenation. This is the accumulator pattern that
+// distributed clients (e.g., a log shipper) rely on.
+func TestAppend_Sequence_AccumulatesAllValues(t *testing.T) {
+	s := New()
+
+	s.Append("k", "a")
+	s.Append("k", "b")
+	s.Append("k", "c")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after Append sequence, got ok=false")
+	}
+	if v != "abc" {
+		t.Errorf("expected accumulated value %q, got %q", "abc", v)
+	}
+}
+
+// TestAppend_IsNotIdempotent is the negative twin of
+// TestPut_RepeatedSameValue_IsIdempotent and the motivating example for M2.
+// Applying Append twice produces a state observably different from applying
+// it once. If this test ever starts failing, Append's semantics have been
+// mistakenly weakened — and the case for M2's request-ID dedup machinery
+// goes with it.
+func TestAppend_IsNotIdempotent(t *testing.T) {
+	s := New()
+
+	s.Append("k", "x")
+	s.Append("k", "x")
+	v, ok := s.Get("k")
+
+	if !ok {
+		t.Errorf("expected ok=true after two Appends, got ok=false")
+	}
+	if v != "xx" {
+		t.Errorf("Append is meant to be NON-idempotent: expected %q after two Appends, got %q", "xx", v)
 	}
 }
