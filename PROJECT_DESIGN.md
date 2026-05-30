@@ -41,6 +41,12 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - The question is whether to keep Milestone 4 as a standalone WAL exercise or fold persistence into Raft proper.
 - This question will be revisited after Milestone 3.
 
+### Milestone 3 API design decisions
+
+- Chose `string` values for `Put` and `Append` to match the current `internal/store` API and keep the first networking milestone simple.
+- Chose a response `Status` enum instead of a separate `found` flag for `Get`, since it is more extensible and better aligned with RPC semantics.
+- Planned client-side retry behavior around timeout/transient failures with stable request IDs, but deferred dedup enforcement to M7.
+
 ## Tradeoffs and Challenges
 
 - `store` package purity vs. early integration:
@@ -59,4 +65,8 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 
 - Project is at the end of Milestone 1.
 - Next micro-step: start Milestone 3 design by defining `proto/kv/kv.proto`.
-- The first design artifact will be a `.proto` schema for `Get`, `Put`, and `Append` messages, including a request ID field and a simple status enum.
+- The selected API shape is:
+  - `Put` / `Append` values use `string`
+  - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
+  - request IDs are included in write requests so the client can safely retry on timeouts
+- The first design artifact is the `.proto` schema for `Get`, `Put`, and `Append`.

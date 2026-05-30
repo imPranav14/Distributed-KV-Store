@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package kv;
+
+option go_package = "github.com/imPranav14/Distributed-KV-Store/proto/kv;kv";
+
+// Status codes for KV RPC responses.
+// Using an enum keeps RPC semantics explicit and extensible.
+enum Status {
+  STATUS_OK = 0;
+  STATUS_NOT_FOUND = 1;
+  STATUS_ERROR = 2;
+}
+
+message GetRequest {
+  string key = 1;
+}
+
+message GetResponse {
+  Status status = 1;
+  string value = 2;
+  string error_message = 3;
+}
+
+message PutRequest {
+  string key = 1;
+  string value = 2;
+  string request_id = 3;
+}
+
+message PutResponse {
+  Status status = 1;
+  string error_message = 2;
+}
+
+message AppendRequest {
+  string key = 1;
+  string value = 2;
+  string request_id = 3;
+}
+
+message AppendResponse {
+  Status status = 1;
+  string error_message = 2;
+}
+
+service KvService {
+  rpc Get(GetRequest) returns (GetResponse) {}
+  rpc Put(PutRequest) returns (PutResponse) {}
+  rpc Append(AppendRequest) returns (AppendResponse) {}
+}
