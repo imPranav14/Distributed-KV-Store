@@ -1,0 +1,62 @@
+# Project Design History
+
+This file captures the key design choices, tradeoffs, challenges, and plan changes made while building the distributed KV store.
+
+## Purpose
+
+- Keep a chronological record of architectural decisions.
+- Explain why we chose one path over another.
+- Document when and why the project plan changed.
+- Preserve lessons learned as the system evolves.
+
+## Milestones and Design Decisions
+
+### Milestone 0 — Requirements and Architecture
+
+- Defined the project as a fault-tolerant, linearizable distributed key-value store in Go.
+- Chose gRPC and protobuf for all network communication.
+- Agreed to use OS file I/O for persistence and no third-party consensus or KV libraries.
+- Decided not to create files until they were needed by the current milestone, avoiding premature scaffolding.
+
+### Milestone 1 — Single-Node KV Store
+
+- Built `internal/store` as a pure in-memory state machine with `Get`, `Put`, and `Append`.
+- Kept the API minimal and deterministic so it can later sit behind gRPC or Raft without API changes.
+- Deliberately avoided concurrency control and persistence for this milestone.
+- Tradeoff: simple and easy to test now, but not yet deployable as a real service.
+
+### Design change: idempotency sequencing
+
+- Original plan placed client request IDs and server-side dedup in Milestone 2, before gRPC.
+- Challenge: idempotency cannot be meaningfully built or tested without an RPC boundary.
+- Decision D-012 was revised from `DEFERRED` to `ACCEPTED-AS`.
+- New plan:
+  - M3: gRPC + client + request IDs
+  - M7: Raft KV + dedup table
+- Rationale: this avoids premature dedup-table architecture before Raft and preserves the pedagogical flow.
+
+### Open question: WAL sequencing
+
+- D-013 remains deferred.
+- The question is whether to keep Milestone 4 as a standalone WAL exercise or fold persistence into Raft proper.
+- This question will be revisited after Milestone 3.
+
+## Tradeoffs and Challenges
+
+- `store` package purity vs. early integration:
+  - Chose to keep `internal/store` as a pure state machine without I/O or concurrency.
+  - Benefit: easier reasoning, deterministic behavior, and later reuse under gRPC/Raft.
+
+- Premature architecture vs. incremental progress:
+  - Decision to avoid creating files/packages until needed kept the workspace small and focused.
+  - Tradeoff: some layout work is deferred until later milestones, but the code remains cleaner.
+
+- Idempotency timing:
+  - Originally planned before gRPC, but the RPC boundary is required to implement and test request IDs properly.
+  - This change prevents building a dedup layer that would be reworked once Raft arrives.
+
+## Current status
+
+- Project is at the end of Milestone 1.
+- Next micro-step: start Milestone 3 design by defining `proto/kv/kv.proto`.
+- The first design artifact will be a `.proto` schema for `Get`, `Put`, and `Append` messages, including a request ID field and a simple status enum.

@@ -131,11 +131,10 @@ Do not begin implementation until I approve this roadmap.
 - Full unit test coverage
 - Explain: why start here, what a state machine is, and how MIT 6.5840 Lab 3 treats the KV store as a pure state machine
 
-### Milestone 2 — Client API and Idempotency
-- Client-generated request IDs (UUID or `clientID + seqNo`)
-- Server-side duplicate detection table
-- At-most-once semantics explained
-- Tradeoffs: client-generated vs server-generated IDs, memory cost of dedup table
+> **Note:** original Milestone 2 content is folded into Milestone 3.
+> Client-generated request IDs are introduced with the first gRPC client/server
+> boundary. The dedup table is deferred until M7, where Raft and leader change
+> make it materially necessary.
 
 ### Milestone 3 — gRPC and Network Abstraction
 - Write `proto/kv/kv.proto` and `proto/raft/raft.proto`

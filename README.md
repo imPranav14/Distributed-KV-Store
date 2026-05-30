@@ -10,6 +10,7 @@ transport, Raft for consensus, no third-party KV or consensus libraries.
 
 - [`working.md`](./working.md) — original project brief and roadmap.
 - [`DECISIONS.md`](./DECISIONS.md) — running log of design decisions and tradeoffs.
+- [`PROJECT_DESIGN.md`](./PROJECT_DESIGN.md) — chronological design history, tradeoffs, and plan changes.
 
 ## Quick start
 
@@ -26,5 +27,5 @@ Most targets are placeholders until the milestone that wires them up; see
 
 See `working.md` §Milestone Roadmap. Briefly:
 
-M0 architecture → M1 single-node KV → M2/M3 client + gRPC → M4 WAL →
-M5/M6 Raft → M7 KV-on-Raft → M8 snapshots → M9 sharding → M10 hardening.
+M0 architecture → M1 single-node KV → M3 gRPC + client + request IDs → M4 WAL →
+M5/M6 Raft → M7 KV-on-Raft + dedup table → M8 snapshots → M9 sharding → M10 hardening.

@@ -109,14 +109,15 @@ new directories appear for the first time.
 
 ## Open questions (revisit before the named milestone)
 
-### D-012 — Sequencing of idempotency work *(2026-05-22, DEFERRED)*
-`working.md` puts client request IDs and server-side dedup (M2) before the
-gRPC layer (M3). Idempotency cannot be meaningfully built or tested without
-an RPC boundary, and MIT places the dedup table inside the KV server after
-Raft is in place (Lab 3). **Options:** (a) merge M2 into M3, building dedup
-alongside the first real client/server; (b) defer M2 until just before M7
-where it materially matters.
-**Revisit:** at the close of M1.
+### D-012 — Sequencing of idempotency work *(2026-05-22, ACCEPTED-AS)*
+`working.md` originally put client request IDs and server-side dedup (M2)
+before the gRPC layer (M3). Idempotency cannot be meaningfully built or
+tested without an RPC boundary, so we accept a revised sequencing:
+- M3: gRPC + client + request IDs
+- M7: Raft KV + dedup table
+This preserves the pedagogical flow and avoids premature dedup-table design
+before Raft is in place.
+**Revisit:** none; this is the accepted plan.
 
 ### D-013 — WAL as standalone milestone vs. folded into Raft persistence *(2026-05-22, DEFERRED)*
 `working.md` M4 introduces a single-node WAL, but in standard Raft the Raft
