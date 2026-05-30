@@ -1,5 +1,7 @@
 package store
 
+import "sync"
+
 // Store is the in-memory key-value state machine.
 //
 // Invariants:
@@ -8,10 +10,12 @@ package store
 //   - (Safety) Store performs no I/O, no time reads, and no random number
 //     generation, so its behavior is a pure function of (state, input).
 //
-// Concurrency: Store is not safe for concurrent use in Milestone 1. A
-// sync.RWMutex will be added in Milestone 3 when a gRPC handler becomes
-// the first concurrent caller.
+// Concurrency: Store is safe for concurrent use in Milestone 3. A
+// sync.RWMutex protects reads and writes through the public API.
+// The mutex is intentionally internal to this package so callers need not
+// manage synchronization themselves.
 type Store struct {
+	mu sync.RWMutex
 	kv map[string]string
 }
 
@@ -34,6 +38,9 @@ func New() *Store {
 // Get is safe to call on a Store with a nil kv map (it will report ok=false
 // for every key), but callers should still construct via New.
 func (s *Store) Get(key string) (value string, ok bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	value, ok = s.kv[key]
 	return value, ok
 }
@@ -51,6 +58,9 @@ func (s *Store) Get(key string) (value string, ok bool) {
 // Put panics if s was constructed by zero value rather than New (the map
 // would be nil). This is intentional; callers must use New.
 func (s *Store) Put(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.kv[key] = value
 }
 
@@ -73,5 +83,8 @@ func (s *Store) Put(key, value string) {
 // that window. Raft preserves determinism across replicas in M7 because
 // every node applies operations in the same total order.
 func (s *Store) Append(key, value string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	s.kv[key] = s.kv[key] + value
 }

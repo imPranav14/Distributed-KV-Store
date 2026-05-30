@@ -47,6 +47,14 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - Chose a response `Status` enum instead of a separate `found` flag for `Get`, since it is more extensible and better aligned with RPC semantics.
 - Planned client-side retry behavior around timeout/transient failures with stable request IDs, but deferred dedup enforcement to M7.
 
+### Milestone 3 implementation details
+
+- Added `internal/server/kv_server.go` to expose the generated `KvService` over gRPC.
+- Server methods are thin wrappers around `internal/store`, reserving request ID fields for future dedup support.
+- Added concurrency safety to `internal/store` with a `sync.RWMutex` so gRPC handlers can safely access shared state.
+- Added `internal/client/client.go` with a `Client` type, request-ID generation, timeout-bound RPC attempts, and retry-on-retryable transport failures.
+- Implemented `internal/server/kv_server_test.go` and `internal/client/client_test.go` to validate the end-to-end gRPC wiring using an in-memory bufconn transport.
+
 ## Tradeoffs and Challenges
 
 - `store` package purity vs. early integration:
@@ -63,16 +71,14 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 
 ## Current status
 
-- Project has moved into Milestone 3 design and proto verification.
-- Completed `proto/kv/kv.proto` design for the client-facing KV service.
-- Created `proto/raft/raft.proto` for internal Raft RPCs.
-- Updated `Makefile` so `make proto` now runs `protoc` with `protoc-gen-go` and `protoc-gen-go-grpc`.
-- Installed required Go protobuf plugin binaries and module dependencies:
-  - `google.golang.org/grpc`
-  - `google.golang.org/protobuf`
-- Verified generated code by running `make proto` and `go vet ./...` successfully.
+- Project is now implementing Milestone 3 server and client wiring.
+- Completed `proto/kv/kv.proto` and `proto/raft/raft.proto` design.
+- Added `internal/server/kv_server.go` and `internal/client/client.go`.
+- Added concurrency safety to `internal/store` with `sync.RWMutex` for gRPC handler safety.
+- Added tests for both server and client implementation.
+- Verified the implementation with `go test ./internal/...`.
 - The selected API shape remains:
   - `Put` / `Append` values use `string`
   - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
   - request IDs are included in write requests so the client can safely retry on timeouts
-- Next micro-step: implement the first server and client stubs using the generated proto APIs.
+- Next micro-step: add the first server binary entrypoint and internal/config layout for node startup.
