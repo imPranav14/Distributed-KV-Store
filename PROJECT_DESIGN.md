@@ -63,10 +63,16 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 
 ## Current status
 
-- Project is at the end of Milestone 1.
-- Next micro-step: start Milestone 3 design by defining `proto/kv/kv.proto`.
-- The selected API shape is:
+- Project has moved into Milestone 3 design and proto verification.
+- Completed `proto/kv/kv.proto` design for the client-facing KV service.
+- Created `proto/raft/raft.proto` for internal Raft RPCs.
+- Updated `Makefile` so `make proto` now runs `protoc` with `protoc-gen-go` and `protoc-gen-go-grpc`.
+- Installed required Go protobuf plugin binaries and module dependencies:
+  - `google.golang.org/grpc`
+  - `google.golang.org/protobuf`
+- Verified generated code by running `make proto` and `go vet ./...` successfully.
+- The selected API shape remains:
   - `Put` / `Append` values use `string`
   - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
   - request IDs are included in write requests so the client can safely retry on timeouts
-- The first design artifact is the `.proto` schema for `Get`, `Put`, and `Append`.
+- Next micro-step: implement the first server and client stubs using the generated proto APIs.

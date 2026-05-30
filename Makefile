@@ -35,7 +35,13 @@ clean: ## Remove build artifacts and local data dirs
 # --- Placeholders filled in by later milestones ---
 
 proto: ## (M3) Regenerate Go from proto/*.proto
-	@echo "make proto: not yet implemented (lands in Milestone 3)"; exit 1
+	@command -v protoc >/dev/null 2>&1 || { echo "protoc is required for make proto"; exit 1; }
+	@command -v protoc-gen-go >/dev/null 2>&1 || { echo "protoc-gen-go is required for make proto"; exit 1; }
+	@command -v protoc-gen-go-grpc >/dev/null 2>&1 || { echo "protoc-gen-go-grpc is required for make proto"; exit 1; }
+	protoc \
+		--go_out=paths=source_relative:. \
+		--go-grpc_out=paths=source_relative:. \
+		proto/kv/kv.proto proto/raft/raft.proto
 
 build: ## (M1) Compile the node binary into ./bin
 	@echo "make build: not yet implemented (lands in Milestone 1)"; exit 1
