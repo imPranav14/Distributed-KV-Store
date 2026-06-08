@@ -43,9 +43,23 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 
 ### Milestone 3 API design decisions
 
-- Chose `string` values for `Put` and `Append` to match the current `internal/store` API and keep the first networking milestone simple.
-- Chose a response `Status` enum instead of a separate `found` flag for `Get`, since it is more extensible and better aligned with RPC semantics.
-- Planned client-side retry behavior around timeout/transient failures with stable request IDs, but deferred dedup enforcement to M7.
+- `Put` / `Append` value type:
+  - Option A: use `string` values.
+  - Option B: use `bytes` values.
+  - Chosen: `string`.
+  - Why: this matches the existing `internal/store` API, keeps the first networking milestone easy to reason about, and avoids introducing binary-handling complexity before the persistence and Raft layers are in place.
+
+- `Get` response shape:
+  - Option A: separate `found` boolean flag.
+  - Option B: `Status` enum with `OK`, `NOT_FOUND`, `ERROR`.
+  - Chosen: `Status` enum.
+  - Why: an enum is more explicit for RPC semantics, makes the protocol more extensible, and separates application-level not-found semantics from transport-level failures.
+
+- Retry semantics and request IDs:
+  - Option A: no retries until server-side dedup exists.
+  - Option B: allow retries on transport/timeouts using stable client-generated request IDs, but do not enforce dedup on server yet.
+  - Chosen: Option B.
+  - Why: this preserves the API shape needed for future dedup, enables realistic client behavior, and keeps the Milestone 3 server simple while leaving actual dedup enforcement for M7.
 
 ### Milestone 3 implementation details
 
@@ -54,6 +68,38 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - Added concurrency safety to `internal/store` with a `sync.RWMutex` so gRPC handlers can safely access shared state.
 - Added `internal/client/client.go` with a `Client` type, request-ID generation, timeout-bound RPC attempts, and retry-on-retryable transport failures.
 - Implemented `internal/server/kv_server_test.go` and `internal/client/client_test.go` to validate the end-to-end gRPC wiring using an in-memory bufconn transport.
+
+### Milestone 4 WAL design decisions
+
+- WAL serialization format:
+  - Option A: use a protobuf schema in `proto/wal/wal.proto`.
+  - Option B: use a custom binary or text format in internal code only.
+  - Chosen: `proto/wal/wal.proto`.
+  - Why: keeping WAL entries in protobuf matches the rest of the project, makes the on-disk schema explicit, and makes it easier to evolve the log format later.
+
+- WAL entry fields:
+  - Option A: persist only operation type, key, and value.
+  - Option B: include `client_id` + numeric `request_id` for later dedup.
+  - Chosen: include both `client_id` and `request_id`.
+  - Why: request dedup is naturally keyed by client/request pair, and splitting the fields now avoids a later schema migration.
+
+- Replay crash recovery semantics:
+  - Option A: fail on any partial entry.
+  - Option B: tolerate a truncated final entry and replay only complete records.
+  - Chosen: tolerate truncated final entry.
+  - Why: this is the standard append-only log recovery model, and it makes crash recovery robust without requiring extra end-of-log markers.
+
+- WAL safety guard:
+  - Option A: trust the length prefix and allocate each record blindly.
+  - Option B: enforce a maximum reasonable record size before allocating.
+  - Chosen: enforce a `MaxRecordSize` guard in replay.
+  - Why: prevents corrupted or malicious WAL tails from causing unbounded memory allocation during recovery.
+
+- Implementation approach:
+  - Append each entry with an 8-byte length prefix.
+  - Flush and `Sync()` the file on every write.
+  - Replay by reading entry lengths and payloads, stopping cleanly on a truncated tail.
+  - Encapsulate durability in `WAL` and state-machine application in `WALStore`.
 
 ## Tradeoffs and Challenges
 
@@ -71,14 +117,20 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 
 ## Current status
 
-- Project is now implementing Milestone 3 server and client wiring.
-- Completed `proto/kv/kv.proto` and `proto/raft/raft.proto` design.
-- Added `internal/server/kv_server.go` and `internal/client/client.go`.
-- Added concurrency safety to `internal/store` with `sync.RWMutex` for gRPC handler safety.
-- Added tests for both server and client implementation.
-- Verified the implementation with `go test ./internal/...`.
+- Project is now implementing Milestone 4 WAL persistence.
+- Added `proto/wal/wal.proto` and generated `proto/wal/wal.pb.go` via `make proto`.
+- Added `internal/wal/entry.go`, `internal/wal/wal.go`, and `internal/wal/wal_test.go`.
+- Added a `WALStore` wrapper that appends to WAL before applying `Put`/`Append` to `internal/store`.
+- Verified the implementation with `go test ./...`.
 - The selected API shape remains:
   - `Put` / `Append` values use `string`
   - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
   - request IDs are included in write requests so the client can safely retry on timeouts
-- Next micro-step: add the first server binary entrypoint and internal/config layout for node startup.
+- Next micro-step: wire `WALStore` into the node startup path and server entrypoint in the Milestone 5 config/server layout.
+
+## Project log
+
+- 2026-05-22: decided to revise idempotency sequencing. Chose M3 for request IDs and M7 for dedup tables so we do not prematurely design dedup before Raft.
+- 2026-05-30: completed Milestone 3 gRPC/client design, generated proto stubs, and added server/client packages with in-memory bufconn tests.
+- 2026-06-03: completed Milestone 4 WAL design and implementation. Added `proto/wal/wal.proto`, durable append-only logging, crash-tolerant replay, and integration tests.
+- 2026-06-08: refined WAL schema to store `client_id` + numeric `request_id` separately and added `MaxRecordSize` validation to prevent oversized/corrupted replay allocations.

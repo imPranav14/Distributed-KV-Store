@@ -41,7 +41,7 @@ proto: ## (M3) Regenerate Go from proto/*.proto
 	protoc \
 		--go_out=paths=source_relative:. \
 		--go-grpc_out=paths=source_relative:. \
-		proto/kv/kv.proto proto/raft/raft.proto
+		proto/kv/kv.proto proto/raft/raft.proto proto/wal/wal.proto
 
 build: ## (M1) Compile the node binary into ./bin
 	@echo "make build: not yet implemented (lands in Milestone 1)"; exit 1
