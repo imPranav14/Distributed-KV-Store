@@ -57,6 +57,25 @@ func NewWALStore(store *store.Store, wal *WAL) *WALStore {
 	return &WALStore{wal: wal, store: store}
 }
 
+func NewStoreWithWAL(path string) (*WALStore, error) {
+	wal, err := Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	store := store.New()
+	if err := wal.ReplayInto(store); err != nil {
+		wal.Close()
+		return nil, err
+	}
+
+	return NewWALStore(store, wal), nil
+}
+
+func (s *WALStore) Close() error {
+	return s.wal.Close()
+}
+
 func (w *WAL) Append(entry *Entry) error {
 	if entry == nil {
 		return fmt.Errorf("wal entry cannot be nil")

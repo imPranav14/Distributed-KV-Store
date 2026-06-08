@@ -2,15 +2,23 @@ package server
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
-	"github.com/imPranav14/Distributed-KV-Store/internal/store"
+	"github.com/imPranav14/Distributed-KV-Store/internal/wal"
 	kv "github.com/imPranav14/Distributed-KV-Store/proto/kv"
 )
 
 func TestKvServer_GetPutAppend(t *testing.T) {
-	s := store.New()
-	srv := NewKvServer(s)
+	dir := t.TempDir()
+	walPath := filepath.Join(dir, "wal.log")
+	walStore, err := wal.NewStoreWithWAL(walPath)
+	if err != nil {
+		t.Fatalf("NewStoreWithWAL failed: %v", err)
+	}
+	defer walStore.Close()
+
+	srv := NewKvServer(walStore)
 	ctx := context.Background()
 
 	putResp, err := srv.Put(ctx, &kv.PutRequest{Key: "k", Value: "v", RequestId: "id-1"})

@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,7 +11,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/imPranav14/Distributed-KV-Store/internal/server"
-	"github.com/imPranav14/Distributed-KV-Store/internal/store"
+	"github.com/imPranav14/Distributed-KV-Store/internal/wal"
 	kv "github.com/imPranav14/Distributed-KV-Store/proto/kv"
 )
 
@@ -25,8 +26,15 @@ func dialer(lis *bufconn.Listener) func(context.Context, string) (net.Conn, erro
 func TestClient_GetPutAppend(t *testing.T) {
 	lis := bufconn.Listen(bufSize)
 	s := grpc.NewServer()
-	store := store.New()
-	kvServer := server.NewKvServer(store)
+	dir := t.TempDir()
+	walPath := filepath.Join(dir, "wal.log")
+	walStore, err := wal.NewStoreWithWAL(walPath)
+	if err != nil {
+		t.Fatalf("NewStoreWithWAL failed: %v", err)
+	}
+	defer walStore.Close()
+
+	kvServer := server.NewKvServer(walStore)
 	kv.RegisterKvServiceServer(s, kvServer)
 
 	go func() {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/imPranav14/Distributed-KV-Store/internal/store"
+	"github.com/imPranav14/Distributed-KV-Store/internal/wal"
 	kv "github.com/imPranav14/Distributed-KV-Store/proto/kv"
 )
 
@@ -19,13 +19,13 @@ import (
 // future dedup support, but they are not yet used by this Milestone 3 server.
 type KvServer struct {
 	kv.UnimplementedKvServiceServer
-	store *store.Store
+	store *wal.WALStore
 }
 
 // NewKvServer returns a server ready to handle KV RPCs.
-func NewKvServer(store *store.Store) *KvServer {
+func NewKvServer(store *wal.WALStore) *KvServer {
 	if store == nil {
-		panic("server requires a non-nil store")
+		panic("server requires a non-nil WALStore")
 	}
 	return &KvServer{store: store}
 }
@@ -52,7 +52,9 @@ func (s *KvServer) Put(ctx context.Context, req *kv.PutRequest) (*kv.PutResponse
 		return nil, fmt.Errorf("PutRequest cannot be nil")
 	}
 
-	s.store.Put(req.Key, req.Value)
+	if err := s.store.Put(req.Key, req.Value); err != nil {
+		return nil, fmt.Errorf("put failed: %w", err)
+	}
 	return &kv.PutResponse{Status: kv.Status_STATUS_OK}, nil
 }
 
@@ -61,6 +63,8 @@ func (s *KvServer) Append(ctx context.Context, req *kv.AppendRequest) (*kv.Appen
 		return nil, fmt.Errorf("AppendRequest cannot be nil")
 	}
 
-	s.store.Append(req.Key, req.Value)
+	if err := s.store.Append(req.Key, req.Value); err != nil {
+		return nil, fmt.Errorf("append failed: %w", err)
+	}
 	return &kv.AppendResponse{Status: kv.Status_STATUS_OK}, nil
 }

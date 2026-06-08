@@ -121,12 +121,14 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - Added `proto/wal/wal.proto` and generated `proto/wal/wal.pb.go` via `make proto`.
 - Added `internal/wal/entry.go`, `internal/wal/wal.go`, and `internal/wal/wal_test.go`.
 - Added a `WALStore` wrapper that appends to WAL before applying `Put`/`Append` to `internal/store`.
+- Added `wal.NewStoreWithWAL(path)` to open, replay, and return a WAL-backed state machine.
+- Wired `internal/server/kv_server.go` to use `*wal.WALStore` so RPC writes are durably logged before applying in-memory state.
 - Verified the implementation with `go test ./...`.
 - The selected API shape remains:
   - `Put` / `Append` values use `string`
   - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
   - request IDs are included in write requests so the client can safely retry on timeouts
-- Next micro-step: wire `WALStore` into the node startup path and server entrypoint in the Milestone 5 config/server layout.
+- Next micro-step: add a node entrypoint that constructs `WALStore` and starts the gRPC server.
 
 ## Project log
 
@@ -134,3 +136,4 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - 2026-05-30: completed Milestone 3 gRPC/client design, generated proto stubs, and added server/client packages with in-memory bufconn tests.
 - 2026-06-03: completed Milestone 4 WAL design and implementation. Added `proto/wal/wal.proto`, durable append-only logging, crash-tolerant replay, and integration tests.
 - 2026-06-08: refined WAL schema to store `client_id` + numeric `request_id` separately and added `MaxRecordSize` validation to prevent oversized/corrupted replay allocations.
+- 2026-06-09: wired `WALStore` into `internal/server/kv_server.go`, added `wal.NewStoreWithWAL(path)`, and updated server/client tests to exercise WAL-backed writes.
