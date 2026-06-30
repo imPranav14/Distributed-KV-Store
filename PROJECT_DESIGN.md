@@ -121,14 +121,18 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - Added `proto/wal/wal.proto` and generated `proto/wal/wal.pb.go` via `make proto`.
 - Added `internal/wal/entry.go`, `internal/wal/wal.go`, and `internal/wal/wal_test.go`.
 - Added a `WALStore` wrapper that appends to WAL before applying `Put`/`Append` to `internal/store`.
+- Added `internal/config/config.go` for parsing node startup flags and deriving the WAL path.
 - Added `wal.NewStoreWithWAL(path)` to open, replay, and return a WAL-backed state machine.
 - Wired `internal/server/kv_server.go` to use `*wal.WALStore` so RPC writes are durably logged before applying in-memory state.
+- Added `cmd/node/main.go` as a minimal node entrypoint that uses config, starts the WAL-backed KV server, and listens for gRPC.
+- Added `cmd/node/main_test.go` to smoke-test node startup and WAL replay across restart.
+- Added `run-local` to `Makefile` so `make run-local` starts the node entrypoint.
 - Verified the implementation with `go test ./...`.
 - The selected API shape remains:
   - `Put` / `Append` values use `string`
   - `Get` returns a `Status` enum with `OK`, `NOT_FOUND`, and `ERROR`
   - request IDs are included in write requests so the client can safely retry on timeouts
-- Next micro-step: add a node entrypoint that constructs `WALStore` and starts the gRPC server.
+- Next micro-step: add a local run target and finalize node config/flags for repeated multi-node startup.
 
 ## Project log
 
@@ -136,4 +140,4 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - 2026-05-30: completed Milestone 3 gRPC/client design, generated proto stubs, and added server/client packages with in-memory bufconn tests.
 - 2026-06-03: completed Milestone 4 WAL design and implementation. Added `proto/wal/wal.proto`, durable append-only logging, crash-tolerant replay, and integration tests.
 - 2026-06-08: refined WAL schema to store `client_id` + numeric `request_id` separately and added `MaxRecordSize` validation to prevent oversized/corrupted replay allocations.
-- 2026-06-09: wired `WALStore` into `internal/server/kv_server.go`, added `wal.NewStoreWithWAL(path)`, and updated server/client tests to exercise WAL-backed writes.
+- 2026-06-09: added `internal/config/config.go`, wired `WALStore` into `internal/server/kv_server.go`, added `wal.NewStoreWithWAL(path)`, created `cmd/node/main.go`, added `cmd/node/main_test.go` for smoke testing restart recovery, added `run-local` to `Makefile`, and updated server/client tests to exercise WAL-backed writes.

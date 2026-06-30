@@ -55,5 +55,6 @@ down: ## (M3) docker compose down -v
 logs: ## (M3) docker compose logs -f
 	@echo "make logs: not yet implemented (lands in Milestone 3)"; exit 1
 
-run-local: ## (M3) Run 3 nodes as local processes (no Docker)
-	@echo "make run-local: not yet implemented (lands in Milestone 3)"; exit 1
+run-local: ## (M4) Run a single node locally (no Docker)
+	@echo "Starting local node with WAL persistence..."
+	@go run ./cmd/node

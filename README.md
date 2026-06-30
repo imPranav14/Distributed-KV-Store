@@ -4,7 +4,7 @@ A fault-tolerant, linearizable distributed key-value store built from scratch in
 Go, following the pedagogy of MIT 6.5840 (Distributed Systems). gRPC for
 transport, Raft for consensus, no third-party KV or consensus libraries.
 
-**Status:** Milestone 0 — Requirements and Architecture.
+**Status:** Milestone 4 completed; Milestone 5 Raft election scaffolding started.
 
 ## Documents
 
@@ -16,9 +16,20 @@ transport, Raft for consensus, no third-party KV or consensus libraries.
 
 ```sh
 make help       # list available targets
-make test       # run tests (none yet at M0)
+make test       # run tests
 make vet        # static analysis
 ```
+
+The project currently has a working WAL-backed KV server and a minimal Raft node scaffold for leader-election state transitions.
+
+### What is implemented
+- gRPC KV service over protobuf
+- WAL persistence and replay for durable writes
+- a small `internal/raft` package with node role transitions and election timeout logic
+
+### How it is implemented
+- The KV server uses a WAL-backed store so writes are appended before the in-memory state is updated.
+- The Raft package models leader election state explicitly with a small `Node` struct and simple transition methods.
 
 Most targets are placeholders until the milestone that wires them up; see
 `make help` for the per-target milestone tag.
