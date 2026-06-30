@@ -213,6 +213,72 @@ func (n *Node) AppendToLog(entries []*raftpb.LogEntry) int64 {
 	return last
 }
 
+// TruncateAndAppend enforces the Raft log consistency check at PrevLogIndex/PrevLogTerm.
+// If the local log doesn't contain an entry at PrevLogIndex with PrevLogTerm, it
+// returns (0, false). Otherwise it truncates any conflicting entries after
+// PrevLogIndex and appends the provided entries, assigning indices where missing.
+// It returns the index of the last appended entry and true on success.
+func (n *Node) TruncateAndAppend(prevIndex, prevTerm int64, entries []*raftpb.LogEntry) (int64, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	// If prevIndex is 0, accept as matching an empty prefix.
+	if prevIndex == 0 {
+		// truncate to zero
+		n.Log = nil
+		last := int64(0)
+		for _, e := range entries {
+			if e == nil {
+				continue
+			}
+			if e.Index == 0 {
+				last++
+				e.Index = last
+			} else {
+				last = e.Index
+			}
+			n.Log = append(n.Log, e)
+		}
+		return last, true
+	}
+
+	// Find the position of prevIndex in the log
+	pos := -1
+	for i, le := range n.Log {
+		if le.GetIndex() == prevIndex {
+			pos = i
+			break
+		}
+	}
+	if pos == -1 {
+		return 0, false
+	}
+
+	// Check term match
+	if n.Log[pos].GetTerm() != prevTerm {
+		return 0, false
+	}
+
+	// Truncate entries after pos
+	n.Log = n.Log[:pos+1]
+
+	// Append new entries
+	last := n.Log[len(n.Log)-1].GetIndex()
+	for _, e := range entries {
+		if e == nil {
+			continue
+		}
+		if e.Index == 0 {
+			last++
+			e.Index = last
+		} else {
+			last = e.Index
+		}
+		n.Log = append(n.Log, e)
+	}
+	return last, true
+}
+
 func (n *Node) randomizeElectionTimeout() {
 	if n.ElectionTimeoutMax <= n.ElectionTimeoutMin || n.ElectionTimeoutMin <= 0 {
 		n.ElectionTimeout = 150 * time.Millisecond

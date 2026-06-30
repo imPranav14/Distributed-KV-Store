@@ -216,6 +216,32 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
       freshness checks straightforward and self-contained without touching
       persistence. Persisting `VotedFor` to the WAL remains the next critical
       hardening step.
+  - 2026-07-01: implemented Step 3 — AppendEntries replication (basic).
+    - Motivation: Leaders must be able to replicate new log entries and ensure
+      followers have a consistent sequence of commands. This step implements
+      the core consistency check required before accepting new entries.
+    - What I changed:
+      - `AppendEntries` server now performs `PrevLogIndex`/`PrevLogTerm`
+        consistency checks. If the local log doesn't contain a matching entry
+        at `PrevLogIndex` with `PrevLogTerm`, the follower rejects the request.
+      - Added `Node.TruncateAndAppend(prevIndex, prevTerm, entries)` which:
+        - Locates the `prevIndex` in the follower's `Log` and verifies its term.
+        - Truncates any conflicting suffix (entries after `prevIndex`).
+        - Appends the leader-provided entries, assigning indices if missing.
+      - Leaders will now be able to send non-empty `AppendEntries` containing
+        `raft.LogEntry` values; the follower will apply them to its in-memory
+        `Log` when they pass the consistency check.
+    - Tradeoffs and notes:
+      - This implementation keeps indices and terms in-memory only. Persistence
+        of these entries to WAL is planned in Step 5.
+      - Conflict resolution follows the standard Raft approach (truncate+append)
+        and assumes the leader supplies entries with monotonically increasing
+        indices when appropriate.
+      - The `AppendEntriesResponse` currently returns success/failure and term
+        (no match index feedback). More detailed responses can be added later
+        to speed up leader backtracking.
+    - Validation:
+      - Ran unit tests and `go test ./...` — all packages passed locally.
       2. Persist `VotedFor` to the WAL to ensure vote choices survive node restarts.
       3. Wire full AppendEntries replication (append log entries, handle index/term
          checks, and commit/leader-advance logic).

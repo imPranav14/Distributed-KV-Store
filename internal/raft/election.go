@@ -62,8 +62,20 @@ func (s *Server) AppendEntries(ctx context.Context, req *raftpb.AppendEntriesReq
 	}
 
 	// Reset election timer on valid heartbeat
-	n.ResetElectionTimer()
+	// If there are no entries, treat as heartbeat: reset timer and accept.
+	if len(req.Entries) == 0 {
+		n.ResetElectionTimer()
+		return &raftpb.AppendEntriesResponse{Term: n.CurrentTerm, Success: true}, nil
+	}
 
+	// Otherwise, perform log consistency checks and append entries.
+	_, ok := n.TruncateAndAppend(req.PrevLogIndex, req.PrevLogTerm, req.Entries)
+	if !ok {
+		return &raftpb.AppendEntriesResponse{Term: n.CurrentTerm, Success: false}, nil
+	}
+
+	// update heartbeat and acknowledge success
+	n.ResetElectionTimer()
 	return &raftpb.AppendEntriesResponse{Term: n.CurrentTerm, Success: true}, nil
 }
 
