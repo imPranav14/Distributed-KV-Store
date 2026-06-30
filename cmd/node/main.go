@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net"
 	"os"
@@ -14,6 +15,7 @@ import (
 	kv "github.com/imPranav14/Distributed-KV-Store/proto/kv"
 	raftpb "github.com/imPranav14/Distributed-KV-Store/proto/raft"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
@@ -53,6 +55,21 @@ func startNode(cfg *config.Config) (net.Listener, *grpc.Server, *wal.WALStore, e
 
 	raftNode := raft.NewNode(cfg.NodeID)
 	raftpb.RegisterRaftServiceServer(grpcServer, raft.NewServer(raftNode))
+
+	// Dial peers and attach lightweight Raft clients.
+	var peerClients []*raft.Client
+	for _, addr := range cfg.Peers {
+		conn, err := grpc.Dial(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Printf("dial peer %s: %v", addr, err)
+			continue
+		}
+		peerClients = append(peerClients, raft.NewClient(conn))
+	}
+	raftNode.SetPeers(peerClients)
+
+	// Start a background election loop.
+	go raftNode.RunElectionLoop(context.Background())
 
 	listener, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {

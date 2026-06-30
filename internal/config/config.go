@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const (
@@ -18,6 +19,7 @@ type Config struct {
 	NodeID   string
 	WALDir   string
 	GRPCAddr string
+	Peers    []string
 }
 
 func Parse() (*Config, error) {
@@ -29,6 +31,7 @@ func ParseArgs(args []string) (*Config, error) {
 	nodeID := fs.String("node-id", firstNonEmpty(os.Getenv("NODE_ID"), defaultNodeID), "unique node identifier")
 	walDir := fs.String("wal-dir", firstNonEmpty(os.Getenv("WAL_DIR"), defaultWALDir), "directory for WAL files")
 	grpcAddr := fs.String("grpc-addr", firstNonEmpty(os.Getenv("GRPC_ADDR"), defaultGRPCAddr), "gRPC listen address")
+	peers := fs.String("peers", firstNonEmpty(os.Getenv("PEERS"), ""), "comma-separated list of peer gRPC addresses")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
@@ -42,7 +45,29 @@ func ParseArgs(args []string) (*Config, error) {
 		NodeID:   *nodeID,
 		WALDir:   *walDir,
 		GRPCAddr: *grpcAddr,
+		Peers:    parsePeers(*peers),
 	}, nil
+}
+
+func parsePeers(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range filepath.SplitList(s) {
+		// filepath.SplitList handles OS-specific list separators; also accept commas
+		if p == "" {
+			continue
+		}
+		// allow comma-separated values as well
+		for _, part := range strings.Split(p, ",") {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				out = append(out, part)
+			}
+		}
+	}
+	return out
 }
 
 func (c *Config) WALPath() string {

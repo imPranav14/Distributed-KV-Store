@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -35,6 +36,9 @@ type Node struct {
 
 	ElectionTimeout time.Duration
 	lastHeartbeat   time.Time
+
+	// Peers holds gRPC clients to other Raft peers. It may be nil.
+	Peers []*Client
 }
 
 // NewNode creates a follower node with default election timing.
@@ -133,5 +137,92 @@ func (n *Node) Snapshot() StateSnapshot {
 		CurrentTerm:     n.CurrentTerm,
 		VotedFor:        n.VotedFor,
 		ElectionTimeout: n.ElectionTimeout,
+	}
+}
+
+// SetPeers registers the peer clients for this node. It overwrites any
+// existing peer list.
+func (n *Node) SetPeers(peers []*Client) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	n.Peers = peers
+}
+
+// RunElectionLoop runs a simple election loop until the provided context
+// is cancelled. When the election timeout expires the node starts an
+// election, sends `RequestVote` RPCs to peers and becomes leader if it
+// gathers a majority of votes.
+func (n *Node) RunElectionLoop(ctx context.Context) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case now := <-ticker.C:
+			if !n.ElectionExpired(now) {
+				continue
+			}
+
+			// Start a new election
+			if err := n.StartElection(); err != nil {
+				// shouldn't happen but skip this round
+				continue
+			}
+
+			// snapshot peers to avoid holding locks while dialing
+			n.mu.Lock()
+			peers := make([]*Client, 0, len(n.Peers))
+			peers = append(peers, n.Peers...)
+			term := n.CurrentTerm
+			n.mu.Unlock()
+
+			// count self vote
+			votes := 1
+
+			// context for RPCs
+			rpcCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+			var wg sync.WaitGroup
+			results := make(chan bool, len(peers))
+
+			for _, p := range peers {
+				if p == nil {
+					continue
+				}
+				wg.Add(1)
+				go func(c *Client) {
+					defer wg.Done()
+					resp, err := c.RequestVote(rpcCtx, term, n.ID, 0, 0)
+					if err != nil || resp == nil {
+						return
+					}
+					if resp.Term > term {
+						// discovered higher term; step down
+						_ = n.BecomeFollower(resp.Term)
+						return
+					}
+					if resp.VoteGranted {
+						results <- true
+					}
+				}(p)
+			}
+
+			wg.Wait()
+			cancel()
+			close(results)
+
+			for r := range results {
+				if r {
+					votes++
+				}
+			}
+
+			// majority check (peers + self)
+			total := len(peers) + 1
+			if votes*2 > total {
+				_ = n.BecomeLeader()
+			}
+		}
 	}
 }

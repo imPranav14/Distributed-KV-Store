@@ -152,3 +152,8 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
   - Wired Raft RPC service registration into `cmd/node/main.go` so a node exposes `RaftService` alongside the KV service at startup.
   - Added `internal/raft/client.go` with a lightweight `RequestVote` peer client for future election coordination.
   - Updated `README.md` to document that Milestone 4 is complete and Milestone 5 Raft election scaffolding has begun.
+  - 2026-07-01: wired basic peer plumbing and a simple election loop.
+    - Added `--peers` flag to `internal/config/config.go` to accept a list of peer gRPC addresses.
+    - Attached `internal/raft/client.go` clients to the node at startup in `cmd/node/main.go`.
+    - Implemented `Node.RunElectionLoop(ctx)` to trigger elections on timeout, request votes from peers, and become leader on majority.
+    - This is intentionally minimal and optimistic; it provides a testable foundation for election coordination without full log-freshness checks or persistent vote records.
