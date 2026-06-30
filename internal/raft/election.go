@@ -11,6 +11,7 @@ import (
 // Server implements the RaftService RPC interface for election requests.
 // It currently only supports RequestVote for Milestone 5.
 type Server struct {
+	raftpb.UnimplementedRaftServiceServer
 	node *Node
 }
 

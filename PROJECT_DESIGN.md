@@ -149,4 +149,6 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
   - Added `StateSnapshot` and `Snapshot()` for safe read-only inspection in tests and future diagnostics.
   - Created `internal/raft/election.go` with a minimal `RequestVote` RPC implementation that enforces term safety and single-vote-per-term behavior.
   - Created `internal/raft/election_test.go` covering granting votes for a newer term, rejecting older-term requests, and denying second votes in the same term.
+  - Wired Raft RPC service registration into `cmd/node/main.go` so a node exposes `RaftService` alongside the KV service at startup.
+  - Added `internal/raft/client.go` with a lightweight `RequestVote` peer client for future election coordination.
   - Updated `README.md` to document that Milestone 4 is complete and Milestone 5 Raft election scaffolding has begun.

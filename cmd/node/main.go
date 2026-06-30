@@ -8,9 +8,11 @@ import (
 	"syscall"
 
 	"github.com/imPranav14/Distributed-KV-Store/internal/config"
+	"github.com/imPranav14/Distributed-KV-Store/internal/raft"
 	"github.com/imPranav14/Distributed-KV-Store/internal/server"
 	"github.com/imPranav14/Distributed-KV-Store/internal/wal"
 	kv "github.com/imPranav14/Distributed-KV-Store/proto/kv"
+	raftpb "github.com/imPranav14/Distributed-KV-Store/proto/raft"
 	"google.golang.org/grpc"
 )
 
@@ -48,6 +50,9 @@ func startNode(cfg *config.Config) (net.Listener, *grpc.Server, *wal.WALStore, e
 
 	grpcServer := grpc.NewServer()
 	kv.RegisterKvServiceServer(grpcServer, server.NewKvServer(walStore))
+
+	raftNode := raft.NewNode(cfg.NodeID)
+	raftpb.RegisterRaftServiceServer(grpcServer, raft.NewServer(raftNode))
 
 	listener, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
