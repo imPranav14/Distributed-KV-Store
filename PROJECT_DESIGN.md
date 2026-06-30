@@ -141,3 +141,12 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
 - 2026-06-03: completed Milestone 4 WAL design and implementation. Added `proto/wal/wal.proto`, durable append-only logging, crash-tolerant replay, and integration tests.
 - 2026-06-08: refined WAL schema to store `client_id` + numeric `request_id` separately and added `MaxRecordSize` validation to prevent oversized/corrupted replay allocations.
 - 2026-06-09: added `internal/config/config.go`, wired `WALStore` into `internal/server/kv_server.go`, added `wal.NewStoreWithWAL(path)`, created `cmd/node/main.go`, added `cmd/node/main_test.go` for smoke testing restart recovery, added `run-local` to `Makefile`, and updated server/client tests to exercise WAL-backed writes.
+- 2026-06-30: added Raft election scaffolding and started the first RPC-layer for elections.
+  - Created `internal/raft/node.go` to encode Raft node roles (`follower`, `candidate`, `leader`) and election state.
+  - Implemented `NewNode(id)` with a default election timeout and an internal heartbeat timestamp.
+  - Added explicit transition methods: `StartElection()`, `BecomeLeader()`, `BecomeFollower(term)`, and `ResetElectionTimer()`.
+  - Included `ElectionExpired(now)` so election timeout checks are deterministic and testable.
+  - Added `StateSnapshot` and `Snapshot()` for safe read-only inspection in tests and future diagnostics.
+  - Created `internal/raft/election.go` with a minimal `RequestVote` RPC implementation that enforces term safety and single-vote-per-term behavior.
+  - Created `internal/raft/election_test.go` covering granting votes for a newer term, rejecting older-term requests, and denying second votes in the same term.
+  - Updated `README.md` to document that Milestone 4 is complete and Milestone 5 Raft election scaffolding has begun.
