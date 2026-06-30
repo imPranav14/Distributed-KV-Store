@@ -3,6 +3,7 @@ package raft
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -39,6 +40,9 @@ type Node struct {
 
 	// Peers holds gRPC clients to other Raft peers. It may be nil.
 	Peers []*Client
+	// Election timeout bounds (randomized per election)
+	ElectionTimeoutMin time.Duration
+	ElectionTimeoutMax time.Duration
 }
 
 // NewNode creates a follower node with default election timing.
@@ -46,12 +50,18 @@ func NewNode(id string) *Node {
 	if id == "" {
 		panic("raft node id cannot be empty")
 	}
-	return &Node{
-		ID:              id,
-		Role:            RoleFollower,
-		ElectionTimeout: 150 * time.Millisecond,
-		lastHeartbeat:   time.Now(),
+	// seed randomness for timeouts
+	rand.Seed(time.Now().UnixNano())
+
+	n := &Node{
+		ID:                 id,
+		Role:               RoleFollower,
+		ElectionTimeoutMin: 150 * time.Millisecond,
+		ElectionTimeoutMax: 300 * time.Millisecond,
+		lastHeartbeat:      time.Now(),
 	}
+	n.randomizeElectionTimeout()
+	return n
 }
 
 // RoleString returns the current role as a string.
@@ -66,10 +76,16 @@ func (n *Node) StartElection() error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	if n.Role == RoleLeader {
+		return fmt.Errorf("cannot start election while leader")
+	}
+
 	n.CurrentTerm++
 	n.VotedFor = n.ID
 	n.Role = RoleCandidate
 	n.lastHeartbeat = time.Now()
+	// randomize next election timeout to reduce split votes
+	n.randomizeElectionTimeout()
 
 	return nil
 }
@@ -109,6 +125,8 @@ func (n *Node) ResetElectionTimer() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.lastHeartbeat = time.Now()
+	// pick a new randomized election timeout for the next election
+	n.randomizeElectionTimeout()
 }
 
 // ElectionExpired reports whether the election timeout has elapsed.
@@ -146,6 +164,60 @@ func (n *Node) SetPeers(peers []*Client) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.Peers = peers
+}
+
+func (n *Node) randomizeElectionTimeout() {
+	if n.ElectionTimeoutMax <= n.ElectionTimeoutMin || n.ElectionTimeoutMin <= 0 {
+		n.ElectionTimeout = 150 * time.Millisecond
+		return
+	}
+	delta := rand.Int63n(int64(n.ElectionTimeoutMax - n.ElectionTimeoutMin))
+	n.ElectionTimeout = n.ElectionTimeoutMin + time.Duration(delta)
+}
+
+// runHeartbeatLoop sends periodic empty AppendEntries RPCs to peers while
+// the node considers itself the leader. It stops when the role changes or
+// the context is cancelled.
+func (n *Node) runHeartbeatLoop(ctx context.Context) {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			n.mu.Lock()
+			if n.Role != RoleLeader {
+				n.mu.Unlock()
+				return
+			}
+			term := n.CurrentTerm
+			peers := append([]*Client(nil), n.Peers...)
+			n.mu.Unlock()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			var wg sync.WaitGroup
+			for _, p := range peers {
+				if p == nil {
+					continue
+				}
+				wg.Add(1)
+				go func(c *Client) {
+					defer wg.Done()
+					resp, err := c.AppendEntries(rpcCtx, term, n.ID, 0, 0, nil, 0)
+					if err != nil || resp == nil {
+						return
+					}
+					if resp.Term > term {
+						_ = n.BecomeFollower(resp.Term)
+					}
+				}(p)
+			}
+			wg.Wait()
+			cancel()
+		}
+	}
 }
 
 // RunElectionLoop runs a simple election loop until the provided context
@@ -222,6 +294,8 @@ func (n *Node) RunElectionLoop(ctx context.Context) {
 			total := len(peers) + 1
 			if votes*2 > total {
 				_ = n.BecomeLeader()
+				// start sending heartbeats as leader
+				go n.runHeartbeatLoop(ctx)
 			}
 		}
 	}

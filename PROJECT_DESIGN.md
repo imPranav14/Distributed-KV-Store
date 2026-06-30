@@ -152,8 +152,53 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
   - Wired Raft RPC service registration into `cmd/node/main.go` so a node exposes `RaftService` alongside the KV service at startup.
   - Added `internal/raft/client.go` with a lightweight `RequestVote` peer client for future election coordination.
   - Updated `README.md` to document that Milestone 4 is complete and Milestone 5 Raft election scaffolding has begun.
-  - 2026-07-01: wired basic peer plumbing and a simple election loop.
-    - Added `--peers` flag to `internal/config/config.go` to accept a list of peer gRPC addresses.
-    - Attached `internal/raft/client.go` clients to the node at startup in `cmd/node/main.go`.
-    - Implemented `Node.RunElectionLoop(ctx)` to trigger elections on timeout, request votes from peers, and become leader on majority.
-    - This is intentionally minimal and optimistic; it provides a testable foundation for election coordination without full log-freshness checks or persistent vote records.
+  - 2026-07-01: wired basic peer plumbing and a simple election loop (detailed).
+    - Motivation: reduce flakiness from simultaneous timeouts and provide the minimal hooks
+      required to evolve a leader election into a fully correct Raft implementation.
+    - What I changed (behavioral summary):
+      - Randomized election timeouts: each `Node` now chooses a per-election timeout in
+        the range `[ElectionTimeoutMin, ElectionTimeoutMax]` (default 150ms–300ms).
+        Timeouts are randomized on node creation, after a successful heartbeat reset,
+        and when a node starts a new election. This reduces the chance of repeated
+        split votes caused by synchronized timeouts.
+      - Don't start election while leader: `StartElection()` will return an error if
+        called when the node's `Role` is `RoleLeader`. This prevents a leader from
+        re-entering candidacy while it still believes it is leader.
+      - Leader heartbeat loop: when a candidate wins a term and becomes leader the
+        node starts `runHeartbeatLoop(ctx)` which periodically (default 50ms) sends
+        empty `AppendEntries` RPCs to peers (via `internal/raft.Client.AppendEntries`).
+        Followers reset their election timers when they receive a heartbeat.
+      - AppendEntries handling: `internal/raft.Server.AppendEntries` now accepts
+        heartbeat requests for Milestone 5, updates term state when observing a
+        higher term, and resets the follower's election timer. This is intentionally
+        lightweight — it does not yet implement log replication or consistency checks.
+      - Client additions: `internal/raft.Client` gained an `AppendEntries(...)`
+        helper so leaders can send heartbeats and later carry log entries.
+
+    - Implementation details & tradeoffs:
+      - Timeouts: default bounds (150ms–300ms) were chosen to be small for tests
+        and local development. They are configurable on `Node` and could be
+        promoted to flags later. Randomization uses a seeded `math/rand` per
+        process — acceptable for local testing but replaceable with crypto RNG if
+        desired for high-assurance deployments.
+      - Heartbeat frequency: set to 50ms to make tests fast and to demonstrate
+        behavior quickly in single-machine runs. In production this would be
+        larger and tunable relative to the election timeout.
+      - Safety vs. simplicity: the current `RequestVote` calls still send
+        `lastLogIndex=0/lastLogTerm=0`. The log-freshness check is omitted until
+        a log implementation exists, to avoid duplicating/rewiring code later.
+      - Persistence: `VotedFor` is still in-memory. Persisting it to the WAL is a
+        planned next step to ensure votes survive restarts.
+
+    - Validation:
+      - Added unit tests for `RequestVote` server logic earlier; after these
+        changes I ran `go test ./...` — all packages passed locally.
+
+    - Next steps (recommended, prioritized):
+      1. Implement log-freshness checks in `RequestVote` so followers can compare
+         `lastLogIndex`/`lastLogTerm` before granting votes.
+      2. Persist `VotedFor` to the WAL to ensure vote choices survive node restarts.
+      3. Wire full AppendEntries replication (append log entries, handle index/term
+         checks, and commit/leader-advance logic).
+      4. Expose and tune election/heartbeat parameters as CLI flags for experiments.
+      5. Add integration tests for multi-node elections using the `--peers` flag.

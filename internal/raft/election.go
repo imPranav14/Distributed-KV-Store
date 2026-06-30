@@ -37,6 +37,36 @@ func (s *Server) RequestVote(ctx context.Context, req *raftpb.RequestVoteRequest
 	return &raftpb.RequestVoteResponse{Term: term, VoteGranted: voteGranted}, nil
 }
 
+// AppendEntries handles leader heartbeats and log replication requests.
+// For Milestone 5 this implementation accepts empty heartbeats and
+// resets the follower's election timer when the incoming term is
+// at least the node's current term.
+func (s *Server) AppendEntries(ctx context.Context, req *raftpb.AppendEntriesRequest) (*raftpb.AppendEntriesResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("AppendEntriesRequest cannot be nil")
+	}
+
+	// If term is older, reject but return current term
+	n := s.node
+	n.mu.Lock()
+	current := n.CurrentTerm
+	n.mu.Unlock()
+
+	if req.Term < current {
+		return &raftpb.AppendEntriesResponse{Term: current, Success: false}, nil
+	}
+
+	// If request term is newer, step down and update term
+	if req.Term > current {
+		_ = n.BecomeFollower(req.Term)
+	}
+
+	// Reset election timer on valid heartbeat
+	n.ResetElectionTimer()
+
+	return &raftpb.AppendEntriesResponse{Term: n.CurrentTerm, Success: true}, nil
+}
+
 // HandleRequestVote decides whether the local node can grant a vote.
 // It updates term and vote state atomically.
 func (n *Node) HandleRequestVote(term int64, candidateID string) (int64, bool) {
