@@ -33,7 +33,7 @@ func (s *Server) RequestVote(ctx context.Context, req *raftpb.RequestVoteRequest
 		return nil, fmt.Errorf("RequestVoteRequest cannot be nil")
 	}
 
-	term, voteGranted := s.node.HandleRequestVote(req.Term, req.CandidateId)
+	term, voteGranted := s.node.HandleRequestVote(req.Term, req.CandidateId, req.LastLogIndex, req.LastLogTerm)
 	return &raftpb.RequestVoteResponse{Term: term, VoteGranted: voteGranted}, nil
 }
 
@@ -69,26 +69,50 @@ func (s *Server) AppendEntries(ctx context.Context, req *raftpb.AppendEntriesReq
 
 // HandleRequestVote decides whether the local node can grant a vote.
 // It updates term and vote state atomically.
-func (n *Node) HandleRequestVote(term int64, candidateID string) (int64, bool) {
+func (n *Node) HandleRequestVote(term int64, candidateID string, lastLogIndex, lastLogTerm int64) (int64, bool) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 
+	// Reject older terms immediately
 	if term < n.CurrentTerm {
 		return n.CurrentTerm, false
 	}
 
+	// If the candidate's term is newer, update our term and clear vote
 	if term > n.CurrentTerm {
 		n.CurrentTerm = term
 		n.VotedFor = ""
 		n.Role = RoleFollower
 	}
 
-	if n.VotedFor == "" || n.VotedFor == candidateID {
-		n.VotedFor = candidateID
-		n.Role = RoleFollower
-		n.lastHeartbeat = time.Now()
-		return n.CurrentTerm, true
+	// If we've already voted for someone else in this term, deny
+	if n.VotedFor != "" && n.VotedFor != candidateID {
+		return n.CurrentTerm, false
 	}
 
-	return n.CurrentTerm, false
+	// Determine local last log term/index
+	var localLastTerm int64
+	var localLastIndex int64
+	if len(n.Log) > 0 {
+		localLastTerm = n.Log[len(n.Log)-1].GetTerm()
+		localLastIndex = n.Log[len(n.Log)-1].GetIndex()
+	}
+
+	// Candidate is at least as up-to-date as receiver's log?
+	upToDate := false
+	if lastLogTerm > localLastTerm {
+		upToDate = true
+	} else if lastLogTerm == localLastTerm && lastLogIndex >= localLastIndex {
+		upToDate = true
+	}
+
+	if !upToDate {
+		return n.CurrentTerm, false
+	}
+
+	// Grant vote
+	n.VotedFor = candidateID
+	n.Role = RoleFollower
+	n.lastHeartbeat = time.Now()
+	return n.CurrentTerm, true
 }

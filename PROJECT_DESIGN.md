@@ -197,6 +197,25 @@ This file captures the key design choices, tradeoffs, challenges, and plan chang
     - Next steps (recommended, prioritized):
       1. Implement log-freshness checks in `RequestVote` so followers can compare
          `lastLogIndex`/`lastLogTerm` before granting votes.
+      2. Persist `VotedFor` to the WAL to ensure vote choices survive restarts.
+
+  - 2026-07-01 (continued): implemented Step 2 — log-freshness checks for election safety.
+    - Motivation: Raft requires that followers only grant votes to candidates
+      whose logs are at least as up-to-date as the follower's log. This prevents
+      electing a leader that lacks committed entries and preserves safety.
+    - What I changed:
+      - `Node.HandleRequestVote(...)` now accepts `lastLogIndex` and `lastLogTerm`.
+      - Followers compare candidate log freshness against their local `Log`:
+        - If candidate's `lastLogTerm` > local last term => candidate is fresher.
+        - If equal terms, candidate `lastLogIndex` must be >= local last index.
+      - The follower denies votes when it has already voted for another
+        candidate in the current term.
+      - Tests and the election loop were updated so candidates send their
+        actual `LastLogIndex`/`LastLogTerm` when requesting votes.
+    - Why this order: implementing an in-memory log first (Step 1) made adding
+      freshness checks straightforward and self-contained without touching
+      persistence. Persisting `VotedFor` to the WAL remains the next critical
+      hardening step.
       2. Persist `VotedFor` to the WAL to ensure vote choices survive node restarts.
       3. Wire full AppendEntries replication (append log entries, handle index/term
          checks, and commit/leader-advance logic).

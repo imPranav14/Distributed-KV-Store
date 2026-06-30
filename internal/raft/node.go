@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	raftpb "github.com/imPranav14/Distributed-KV-Store/proto/raft"
 )
 
 // Role represents the current Raft node role.
@@ -43,6 +45,8 @@ type Node struct {
 	// Election timeout bounds (randomized per election)
 	ElectionTimeoutMin time.Duration
 	ElectionTimeoutMax time.Duration
+	// In-memory Raft log. Entries are ordered by increasing Index.
+	Log []*raftpb.LogEntry
 }
 
 // NewNode creates a follower node with default election timing.
@@ -166,6 +170,49 @@ func (n *Node) SetPeers(peers []*Client) {
 	n.Peers = peers
 }
 
+// LastLogIndex returns the index of the last log entry (0 if empty).
+func (n *Node) LastLogIndex() int64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.Log) == 0 {
+		return 0
+	}
+	return n.Log[len(n.Log)-1].GetIndex()
+}
+
+// LastLogTerm returns the term of the last log entry (0 if empty).
+func (n *Node) LastLogTerm() int64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if len(n.Log) == 0 {
+		return 0
+	}
+	return n.Log[len(n.Log)-1].GetTerm()
+}
+
+// AppendToLog appends entries to the in-memory log, assigning sequential
+// indices if entries do not have indices set. It returns the index of the
+// last appended entry.
+func (n *Node) AppendToLog(entries []*raftpb.LogEntry) int64 {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	last := n.LastLogIndex()
+	for _, e := range entries {
+		if e == nil {
+			continue
+		}
+		if e.Index == 0 {
+			last++
+			e.Index = last
+		} else {
+			last = e.Index
+		}
+		n.Log = append(n.Log, e)
+	}
+	return last
+}
+
 func (n *Node) randomizeElectionTimeout() {
 	if n.ElectionTimeoutMax <= n.ElectionTimeoutMin || n.ElectionTimeoutMin <= 0 {
 		n.ElectionTimeout = 150 * time.Millisecond
@@ -258,6 +305,10 @@ func (n *Node) RunElectionLoop(ctx context.Context) {
 			var wg sync.WaitGroup
 			results := make(chan bool, len(peers))
 
+			// capture last log indices/terms for vote requests
+			lastIndex := n.LastLogIndex()
+			lastTerm := n.LastLogTerm()
+
 			for _, p := range peers {
 				if p == nil {
 					continue
@@ -265,7 +316,7 @@ func (n *Node) RunElectionLoop(ctx context.Context) {
 				wg.Add(1)
 				go func(c *Client) {
 					defer wg.Done()
-					resp, err := c.RequestVote(rpcCtx, term, n.ID, 0, 0)
+					resp, err := c.RequestVote(rpcCtx, term, n.ID, lastIndex, lastTerm)
 					if err != nil || resp == nil {
 						return
 					}
